@@ -1,4 +1,4 @@
-# 🎙️ Interview Levelup
+# 🎙️ Interview LevelUp
 
 > AI 驱动的模拟面试平台 — 按岗位和级别进行全流程面试练习，获得实时评分与语音交互体验。
 
@@ -18,40 +18,38 @@
 
 ## 系统架构
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                           Browser                            │
-│                                                              │
-│   React + TypeScript  (Zustand / SCSS Modules)               │
-│                                                              │
-│  ┌─────────────────────┐   SSE / REST   ┌─────────────────┐  │
-│  │   InterviewPage     │◄──────────────►│  backend (Go)   │  │
-│  │                     │                │                 │  │
-│  │  流式气泡渲染         │                │  JWT Auth       │  │
-│  │  TTS 自动朗读        │                │  PostgreSQL 16  │  │
-│  └─────────────────────┘                │  Whisper direct │  │
-│  ┌──────────┐ ┌──────────┐             └────────┬────────┘  │
-│  │   STT    │ │   TTS    │                       │            │
-│  │(WebSpeech│ │(WebSpeech│           HTTP (internal)         │
-│  │/Whisper) │ │  API)    │                       │            │
-│  └──────────┘ └──────────┘                       │            │
-└──────────────────────────────────────────────────┼────────────┘
-                                                   ▼
-                                    ┌──────────────────────────┐
-                                    │     agent (Python)       │
-                                    │                          │
-                                    │  FastAPI + LangGraph     │
-                                    │                          │
-                                    │  ┌────────────────────┐  │
-                                    │  │ generate_question  │  │
-                                    │  │ evaluate_answer    │  │
-                                    │  │ decide_next_step   │  │
-                                    │  │ generate_followup  │  │
-                                    │  │ generate_report    │  │
-                                    │  └─────────┬──────────┘  │
-                                    │            │              │
-                                    │   OpenAI-compatible LLM   │
-                                    └──────────────────────────┘
+```mermaid
+graph TD
+    subgraph Browser["🌐 Browser"]
+        UI["React + TypeScript<br/>(Zustand / SCSS Modules)"]
+        STT["STT<br/>Web Speech API / Whisper"]
+        TTS["TTS<br/>Web Speech API"]
+    end
+
+    subgraph Backend["🦫 interview-levelup-backend  (Go + Gin)"]
+        API["REST API + SSE Streaming"]
+        Auth["JWT Auth"]
+        DB["PostgreSQL 16"]
+        Whisper["OpenAI Whisper (direct)"]
+    end
+
+    subgraph Agent["🤖 interview-levelup-agent  (Python + FastAPI)"]
+        Graph["LangGraph Graph"]
+        Q["generate_question"]
+        E["evaluate_answer"]
+        D["decide_next_step"]
+        F["generate_followup"]
+        R["generate_report"]
+        LLM["OpenAI-compatible LLM"]
+        Graph --> Q & E & D & F & R
+        D --> Q & F & R
+        E --> D
+        Q & F & R --> LLM
+    end
+
+    UI -- "SSE / REST" --> API
+    API --> Auth & DB & Whisper
+    API -- "HTTP (internal)" --> Agent
 ```
 
 ### 关键数据流
