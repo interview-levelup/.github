@@ -18,38 +18,57 @@
 
 ## 系统架构
 
-```mermaid
-graph TD
-    subgraph Browser["🌐 Browser"]
-        UI["React + TypeScript<br/>(Zustand / SCSS Modules)"]
-        STT["STT<br/>Web Speech API / Whisper"]
-        TTS["TTS<br/>Web Speech API"]
-    end
-
-    subgraph Backend["🦫 interview-levelup-backend  (Go + Gin)"]
-        API["REST API + SSE Streaming"]
-        Auth["JWT Auth"]
-        DB["PostgreSQL 16"]
-        Whisper["OpenAI Whisper (direct)"]
-    end
-
-    subgraph Agent["🤖 interview-levelup-agent  (Python + FastAPI)"]
-        Graph["LangGraph Graph"]
-        Q["generate_question"]
-        E["evaluate_answer"]
-        D["decide_next_step"]
-        F["generate_followup"]
-        R["generate_report"]
-        LLM["OpenAI-compatible LLM"]
-        Graph --> Q & E & D & F & R
-        D --> Q & F & R
-        E --> D
-        Q & F & R --> LLM
-    end
-
-    UI -- "SSE / REST" --> API
-    API --> Auth & DB & Whisper
-    API -- "HTTP (internal)" --> Agent
+```
+  Browser (React + TypeScript)
+ ┌─────────────────────────────────────────────────┐
+ │                                                 │
+ │  ┌─────────────────────────────────────────┐    │
+ │  │            InterviewPage                │    │
+ │  │   streaming bubbles / TTS playback      │    │
+ │  └───────────────┬─────────────────────────┘    │
+ │                  │ SSE + REST (fetch / axios)   │
+ │  ┌───────┐  ┌────┴────┐                         │
+ │  │  STT  │  │  TTS    │                         │
+ │  │WebSpch│  │WebSpeech│                         │
+ │  │/Whspr │  │  API    │                         │
+ │  └───────┘  └─────────┘                         │
+ └─────────────────┼───────────────────────────────┘
+                   │
+                   ▼
+  Backend (Go + Gin)
+ ┌─────────────────────────────────────────────────┐
+ │                                                 │
+ │  JWT Auth  │  PostgreSQL 16  │  Whisper direct  │
+ │                                                 │
+ │  POST /interviews/stream      ← create + SSE    │
+ │  POST /interviews/:id/answer/stream  ← answer   │
+ │  POST /interviews/:id/transcribe    ← audio     │
+ │                                                 │
+ └─────────────────┬───────────────────────────────┘
+                   │  HTTP  /chat/stream
+                   ▼
+  Agent (Python + FastAPI + LangGraph)
+ ┌─────────────────────────────────────────────────┐
+ │                                                 │
+ │  route_entry                                    │
+ │   ├─ no answer ──► generate_question ──► END    │
+ │   └─ has answer ─► check_sub                    │
+ │                        │                        │
+ │            ┌───────────┴──────────┐             │
+ │          is_sub                not_sub          │
+ │            │                       │            │
+ │       handle_sub           evaluate_answer      │
+ │       (reply to            (score 0-100,        │
+ │       candidate)           detail breakdown)    │
+ │            │                       │            │
+ │           END               decide_next_step    │
+ │                              ├─► gen_followup   │
+ │                              ├─► gen_question   │
+ │                              └─► gen_report     │
+ │                                                 │
+ │  All question nodes stream tokens via SSE       │
+ │                                                 │
+ └─────────────────────────────────────────────────┘
 ```
 
 ### 关键数据流
@@ -59,13 +78,18 @@ graph TD
     │
     ▼
 backend  POST /interviews/:id/answer/stream
-    │  写库记录答案
+    │  持久化答案
     ▼
 agent  POST /chat/stream
-    │  evaluate_answer → decide_next_step → generate_question
-    │  SSE token ──────────────────────────► frontend 逐字渲染 + TTS 入队
-    ▼
-backend 收到 done 事件 → 持久化新问题 → 推 done 给前端
+    │
+    ├─ check_sub: 候选人反问？
+    │    └─ 是 → handle_sub → 回答候选人问题 → END
+    │
+    └─ 否 → evaluate_answer → decide_next_step
+                 │  evaluate_answer → decide_next_step → generate_question
+                 │  SSE token ─────────────────► frontend 逐字渲染 + TTS 入队
+                 ▼
+backend 收到 done → 持久化新问题 → 推 done 给前端
     ▼
 frontend rounds 更新 → TTS 逐句朗读
 ```
@@ -75,6 +99,7 @@ frontend rounds 更新 → TTS 逐句朗读
 ## 核心功能
 
 - **LangGraph 多节点 Agent** — 出题、评分、追问、反问检测、终止判断、最终报告，完整模拟真实面试官决策链路
+- **候选人反问支持** — 检测候选人是否在问面试官问题，如是则由 `handle_sub` 作答后交还控制权，不计入正式轮次
 - **实时流式对话** — SSE 推流 + 流式气泡渲染，面试官"边想边说"，切换时无闪烁
 - **语音双向** — Web Speech API / OpenAI Whisper 语音输入；TTS 句子队列朗读（1.5× 速），不因新 token 到来中断
 - **即时导航** — 新建面试时后端一创建 DB 行即推 `created` 事件，前端立刻跳转，首问在后台并行生成
