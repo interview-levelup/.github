@@ -54,19 +54,30 @@
  │   ├─ no answer ──► generate_question ──► END    │
  │   └─ has answer ─► check_sub                    │
  │                        │                        │
- │            ┌───────────┴──────────┐             │
- │          is_sub                not_sub          │
- │            │                       │            │
- │       handle_sub           evaluate_answer      │
- │       (reply to            (score 0-100,        │
- │       candidate)           detail breakdown)    │
- │            │                       │            │
- │           END               decide_next_step    │
- │                              ├─► gen_followup   │
- │                              ├─► gen_question   │
- │                              └─► gen_report     │
+ │           ┌────────────┼───────────┐            │
+ │         SUB          END         ANSWER         │
+ │           │      (user_end)        │            │
+ │      handle_sub       │    evaluate_answer      │
+ │      (reply to        │    (score 0-100,        │
+ │      candidate)       │    detail breakdown)    │
+ │           │           │            │            │
+ │          END          │     decide_next_step    │
+ │                       │      │    │    │   │    │
+ │                       │     fu   next  ✓   ✗    │
+ │                       │      │    │    │   │    │
+ │                       │  gen_fu gen_q  │   │    │
+ │                       │    │    │      │   │    │
+ │                       │   END  END     │   │    │
+ │                       │           finished abort│
+ │                       └──────────────┬──────┘   │
+ │                                      ▼          │
+ │                               generate_report   │
+ │                                      │          │
+ │                                     END         │
  │                                                 │
- │  All question nodes stream tokens via SSE       │
+ │  Question/report nodes stream tokens via SSE    │
+ │  (report tokens use separate event type so      │
+ │   they never appear in the chat bubble)         │
  │                                                 │
  └─────────────────────────────────────────────────┘
 ```
@@ -82,14 +93,23 @@ backend  POST /interviews/:id/answer/stream
     ▼
 agent  POST /chat/stream
     │
-    ├─ check_sub: 候选人反问？
-    │    └─ 是 → handle_sub → 回答候选人问题 → END
-    │
-    └─ 否 → evaluate_answer → decide_next_step
-                 │  evaluate_answer → decide_next_step → generate_question
-                 │  SSE token ─────────────────► frontend 逐字渲染 + TTS 入队
-                 ▼
-backend 收到 done → 持久化新问题 → 推 done 给前端
+    ├─ check_sub: 三分类
+    │    ├─ SUB  → handle_sub → 回答候选人问题 → END
+    │    ├─ END  → generate_report（用户主动结束）
+    │    └─ ANSWER → evaluate_answer → decide_next_step
+    │                        │
+    │         ┌──────────────┼──────────────┐
+    │       next/fu      finished         aborted
+    │         │         (轮次跑完)      (即时辱骂或
+    │    继续面试              └──────┬──────┘ 累计消极)
+    │    SSE token ──► frontend       ▼
+    │                          generate_report
+    │                    report_token 事件（Go 层丢弃，
+    │                    不进 chat bubble / 不被 TTS 朗读）
+    │                          │
+    │                        done 事件携带完整报告
+    ▼
+backend 收到 done → 持久化 → 推 saved 给前端
     ▼
 frontend rounds 更新 → TTS 逐句朗读
 ```
