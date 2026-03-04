@@ -1,10 +1,10 @@
-# 🎙️ Interview LevelUp
+# 🎙️ Interview Levelup
 
 > AI 驱动的模拟面试平台 — 按岗位和级别进行全流程面试练习，获得实时评分与语音交互体验。
 
 用户输入目标岗位和级别，AI 面试官便进入角色：逐轮提问、评估回答、在薄弱点深挖追问，最终给出结构化复盘报告。全程支持语音作答与朗读，尽量还原真实面试的紧张感。
 
-**🚀 [立即试用 →](https://interview-levelup-website-production.up.railway.app)**
+**🎯 [线上App →](https://interview-levelup-website-production.up.railway.app)**
 
 ---
 
